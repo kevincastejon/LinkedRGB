@@ -1,6 +1,7 @@
 ﻿using Plugin.BLE;
 using Plugin.BLE.Abstractions.Contracts;
 using Plugin.BLE.Abstractions.EventArgs;
+using System.Diagnostics;
 using System.Text;
 
 namespace LinkedLamp.Services;
@@ -9,12 +10,15 @@ public class EspBleProvisioningService
 {
     private static readonly Guid SERVICE_UUID = Guid.Parse("6E400001-B5A3-F393-E0A9-E50E24DCCA9E");
     private static readonly Guid WIFIPROV_UUID = Guid.Parse("6E400002-B5A3-F393-E0A9-E50E24DCCA9E");
+    private static readonly Guid WIFICONF_UUID = Guid.Parse("6E400003-B5A3-F393-E0A9-E50E24DCCA9E");
 
     private readonly IAdapter _adapter;
     private IDevice? _connectedDevice;
     private ICharacteristic? _wifiProvChar;
+    private ICharacteristic? _wifiConfChar;
     private string _ssid = "";
     private string _pass = "";
+    EventHandler<CharacteristicUpdatedEventArgs> _handler;
     public EspBleProvisioningService()
     {
         _adapter = CrossBluetoothLE.Current.Adapter;
@@ -62,10 +66,45 @@ public class EspBleProvisioningService
         var services = await device.GetServicesAsync();
         var provService = services.FirstOrDefault(s => s.Id == SERVICE_UUID) ?? throw new InvalidOperationException("Service not found.");
         ICharacteristic wifiProvChar = await provService.GetCharacteristicAsync(WIFIPROV_UUID) ?? throw new InvalidOperationException("Characteristic not found.");
+        ICharacteristic wifiConfChar = await provService.GetCharacteristicAsync(WIFICONF_UUID) ?? throw new InvalidOperationException("Characteristic not found.");
+        if (wifiProvChar is null || wifiConfChar is null)
+            throw new InvalidOperationException("Required characteristics not found.");
         _connectedDevice = device;
         _wifiProvChar = wifiProvChar;
+        _wifiConfChar = wifiConfChar;
+        var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _handler = async (object? sender, CharacteristicUpdatedEventArgs e) =>
+        {
+            _wifiConfChar.ValueUpdated -= _handler;
+            try
+            {
+                Debug.WriteLine(">>> "+e.Characteristic.Value[0]);
+                if (e.Characteristic.Value[0] == 0)
+                {
+                    tcs.TrySetResult(false);
+                }
+                else if (e.Characteristic.Value[0] == 1)
+                {
+                    tcs.TrySetResult(true);
+                }
+            }
+            catch (Exception ex)
+            {
+                tcs.TrySetException(ex);
+                throw;
+            }
+        };
+        _wifiConfChar.ValueUpdated += _handler;
+        await _wifiConfChar.StartUpdatesAsync();
         await SendWifiCredentialsAndConnectAsync();
+        bool wifiSuccess = await tcs.Task;
+        await DisconnectAsync();
+        if (!wifiSuccess)
+        {
+            throw new Exception("ESP Wifi connection failed");
+        }
     }
+
     private async Task DisconnectAsync()
     {
         var dev = _connectedDevice;
@@ -82,8 +121,7 @@ public class EspBleProvisioningService
         if (string.IsNullOrWhiteSpace(_ssid))
             throw new ArgumentException("SSID empty.");
 
-        await _wifiProvChar!.WriteAsync(SerializeCredentials("qzdqzd", _pass));
-        await DisconnectAsync();
+        await _wifiProvChar!.WriteAsync(SerializeCredentials(_ssid, _pass));
     }
     static private byte[] SerializeCredentials(string ssid, string pass)
     {

@@ -6,7 +6,6 @@ using Android.OS;
 using Android.Provider;
 using LinkedLamp.Permissions;
 using LinkedLamp.Services;
-using Microsoft.Maui.ApplicationModel;
 using Plugin.BLE;
 using Plugin.BLE.Abstractions.Contracts;
 using System.Collections.ObjectModel;
@@ -121,6 +120,13 @@ public partial class BleScanPage : ContentPage
         PassEntry.IsVisible = false;
         SsidPicker.IsVisible = false;
         SetupArduino.IsEnabled = false;
+        var st = await MauiPermissions.RequestAsync<BluetoothScanPermission>();
+        if (st != PermissionStatus.Granted)
+        {
+            MainLabel.Text = "Bluetooth is required to setup your LinkedLamp. Please enable Bluetooth and retry.";
+            SetupArduino.IsEnabled = true;
+            return;
+        }
         bool btEnabled = CrossBluetoothLE.Current.State == BluetoothState.On;
         if (!btEnabled)
         {
@@ -155,27 +161,33 @@ public partial class BleScanPage : ContentPage
     }
     public async void OnDeviceSelected(object? sender, SelectionChangedEventArgs e)
     {
+        if (DevicesView.SelectedItem == null)
+        {
+            return;
+        }
         SetupArduino.IsEnabled = false;
         DevicesView.IsEnabled = false;
+        bool provSuccess = true;
+        IDevice selectedDevice = ((DeviceRow)DevicesView.SelectedItem).Device;
         try
         {
             await _prov.ConnectAndSetup(
-            ((DeviceRow)DevicesView.SelectedItem).Device,
+            selectedDevice,
             (string)SsidPicker.SelectedItem,
             PassEntry.Text ?? ""
         );
         }
         catch (Exception)
         {
-            MainLabel.Text = "Process failed. You can retry.";
-            SsidPicker.IsEnabled = true;
-            PassEntry.IsEnabled = true;
-            DevicesView.IsEnabled = true;
-            return;
+            provSuccess = false;
         }
-        MainLabel.Text = "Process completed. You can now setup another LinkedLamp.";
         SetupArduino.IsEnabled = true;
         DevicesView.IsEnabled = true;
+        MainLabel.Text = provSuccess ? "Process completed. You can now setup another LinkedLamp." : "Process failed. You can try again.";
+        if (!provSuccess)
+        {
+            DevicesView.SelectedItem = null;
+        }
     }
     public void OpenWifiSettings(object sender, EventArgs e)
     {

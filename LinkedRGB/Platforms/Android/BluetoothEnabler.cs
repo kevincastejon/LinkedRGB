@@ -12,7 +12,13 @@ public static class BluetoothEnabler
 
     public static Task<bool> RequestEnableAsync()
     {
-        var adapter = BluetoothAdapter.DefaultAdapter;
+        BluetoothAdapter? adapter = null;
+#if ANDROID31_0_OR_GREATER
+        var bluetoothManager = (BluetoothManager?)Platform.CurrentActivity?.GetSystemService(Context.BluetoothService);
+        adapter = bluetoothManager?.Adapter;
+#else
+        adapter = BluetoothAdapter.DefaultAdapter;
+#endif
         if (adapter == null)
             return Task.FromResult(false); // device has no Bluetooth
 
