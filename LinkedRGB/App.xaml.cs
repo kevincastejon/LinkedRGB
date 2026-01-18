@@ -1,17 +1,22 @@
-﻿using Microsoft.Extensions.DependencyInjection;
+﻿using LinkedLamp.Pages;
 
-namespace LinkedRGB
+namespace LinkedLamp
 {
     public partial class App : Application
     {
-        public App()
+        private readonly BleScanPage _bleScanPage;
+
+        // MAUI va injecter BleScanPage via DI
+        public App(BleScanPage bleScanPage)
         {
             InitializeComponent();
+            _bleScanPage = bleScanPage;
         }
 
         protected override Window CreateWindow(IActivationState? activationState)
         {
-            return new Window(new AppShell());
+            // NavigationPage => permet Navigation.PushAsync() entre pages
+            return new Window(new NavigationPage(_bleScanPage));
         }
     }
 }

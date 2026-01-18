@@ -1,4 +1,4 @@
-﻿namespace LinkedRGB.Permissions;
+﻿namespace LinkedLamp.Permissions;
 
 public class BluetoothScanPermission : Microsoft.Maui.ApplicationModel.Permissions.BasePlatformPermission
 {

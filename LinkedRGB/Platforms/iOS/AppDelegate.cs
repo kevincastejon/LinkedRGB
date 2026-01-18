@@ -1,6 +1,6 @@
 ﻿using Foundation;
 
-namespace LinkedRGB
+namespace LinkedLamp
 {
     [Register("AppDelegate")]
     public class AppDelegate : MauiUIApplicationDelegate

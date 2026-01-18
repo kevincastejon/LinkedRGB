@@ -1,7 +1,7 @@
 ﻿using ObjCRuntime;
 using UIKit;
 
-namespace LinkedRGB
+namespace LinkedLamp
 {
     public class Program
     {

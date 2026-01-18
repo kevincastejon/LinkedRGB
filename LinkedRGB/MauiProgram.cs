@@ -1,6 +1,6 @@
 ﻿using Microsoft.Extensions.Logging;
 
-namespace LinkedRGB
+namespace LinkedLamp
 {
     public static class MauiProgram
     {
@@ -18,6 +18,8 @@ namespace LinkedRGB
 #if DEBUG
     		builder.Logging.AddDebug();
 #endif
+            builder.Services.AddSingleton<LinkedLamp.Services.EspBleProvisioningService>();
+            builder.Services.AddTransient<LinkedLamp.Pages.BleScanPage>();
 
             return builder.Build();
         }

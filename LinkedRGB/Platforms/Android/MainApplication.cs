@@ -1,7 +1,7 @@
 ﻿using Android.App;
 using Android.Runtime;
 
-namespace LinkedRGB
+namespace LinkedLamp
 {
     [Application]
     public class MainApplication : MauiApplication
