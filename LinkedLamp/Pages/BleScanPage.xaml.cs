@@ -45,7 +45,7 @@ public partial class BleScanPage : ContentPage
         _wifiManager = (WifiManager?)context.GetSystemService(Context.WifiService);
         if (_wifiManager == null)
         {
-            MainLabel.Text = "Problem with WiF.i... Please restart the application.";
+            MainLabel.Text = "Problem with WiFi... Please restart the application.";
             return;
         }
         _wifiReceiver = new WifiStateReceiver();
@@ -107,18 +107,37 @@ public partial class BleScanPage : ContentPage
 
     public void OnSsidSelected(object? sender, EventArgs e)
     {
-        if (!PassEntry.IsVisible)
-        {
-            MainLabel.Text = "Enter the wifi password if the wifi is protected and start scanning to detect and setup your LinkedLamp.";
-            PassEntry.IsVisible = true;
-            SetupArduino.IsVisible = true;
-        }
+        MainLabel.Text = "Enter the wifi password";
+        PassEntry.Text = "";
+        PassEntry.IsVisible = true;
+        SetupGroupName.IsVisible = true;
+    }
+
+    private void OnPassEntryChanged(object? sender, TextChangedEventArgs e)
+    {
+        SetupGroupName.IsEnabled = e.NewTextValue.Length >= 8;
+    }
+
+    private async void OnSetupGroupName(object sender, EventArgs e)
+    {
+        MainLabel.Text = "Enter the group name that you want to join or create.";
+        SetupGroupName.IsVisible = false;
+        PassEntry.IsVisible = false;
+        SsidPicker.IsVisible = false;
+        GroupNameEntry.IsVisible = true;
+        GroupNameEntry.Text = "";
+        SetupArduino.IsVisible = true;
+    }
+    private void OnGroupNameEntryChanged(object? sender, TextChangedEventArgs e)
+    {
+        SetupArduino.IsEnabled = e.NewTextValue.Length >= 1;
     }
     private async void EnsureBluetoothEnabled(object sender, EventArgs e)
     {
         MainLabel.Text = "Bluetooth activation.";
         PassEntry.IsVisible = false;
         SsidPicker.IsVisible = false;
+        GroupNameEntry.IsVisible = false;
         SetupArduino.IsEnabled = false;
         var st = await MauiPermissions.RequestAsync<BluetoothScanPermission>();
         if (st != PermissionStatus.Granted)
@@ -139,10 +158,10 @@ public partial class BleScanPage : ContentPage
         }
         else
         {
-            StartProvisioning();
+            Scan();
         }
     }
-    public async void StartProvisioning()
+    public async void Scan()
     {
         MainLabel.Text = "Detecting LinkedLamp devices around.";
         SecondaryLabel.IsVisible = false;
@@ -188,12 +207,6 @@ public partial class BleScanPage : ContentPage
         {
             DevicesView.SelectedItem = null;
         }
-    }
-    public void OpenWifiSettings(object sender, EventArgs e)
-    {
-        var intent = new Intent(Settings.ActionWifiSettings);
-        intent.AddFlags(ActivityFlags.NewTask);
-        Android.App.Application.Context.StartActivity(intent);
     }
     public async Task<List<string>> GetNearbySsidsAsync()
     {

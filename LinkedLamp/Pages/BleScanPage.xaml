@@ -7,8 +7,10 @@
 
 	<VerticalStackLayout Padding="16" Spacing="12">
 		<Label x:Name="MainLabel" Text="Activez le wifi" />
+        <Entry x:Name="GroupNameEntry" Placeholder="Group name" TextChanged="OnGroupNameEntryChanged" IsPassword="True" IsVisible="False" MaxLength="63" />
 		<Picker x:Name="SsidPicker" Title="Select Wi-Fi network" SelectedIndexChanged="OnSsidSelected" IsVisible="False"/>
-		<Entry x:Name="PassEntry" Placeholder="Mot de passe Wi-Fi" IsPassword="True" IsVisible="False" />
+        <Entry x:Name="PassEntry" Placeholder="Mot de passe Wi-Fi" TextChanged="OnPassEntryChanged"  IsPassword="True" IsVisible="False" MaxLength="63" />
+        <Button x:Name="SetupGroupName" Text="Next" Clicked="OnSetupGroupName"  IsVisible="False" />
 		<Button x:Name="SetupArduino" Text="Scan" Clicked="EnsureBluetoothEnabled"  IsVisible="False" />
 		<CollectionView x:Name="DevicesView" SelectionMode="Single" IsVisible="False" SelectionChanged="OnDeviceSelected">
 			<CollectionView.ItemTemplate>
