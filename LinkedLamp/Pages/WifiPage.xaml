@@ -17,7 +17,8 @@
 
         <Picker x:Name="SsidPicker"
                 Title="Select SSID"
-                SelectedIndexChanged="OnSsidSelected" />
+                SelectedIndexChanged="OnSsidSelected" 
+                IsVisible = "false"/>
 
         <Entry x:Name="PassEntry"
                Placeholder="Password"

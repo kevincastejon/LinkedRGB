@@ -32,12 +32,12 @@ public partial class WifiPage : ContentPage
     protected override async void OnAppearing()
     {
         base.OnAppearing();
-
-        MainLabel.Text = "Select the WiFi network you want your LinkedLamp to connect to";
+        SsidPicker.IsVisible = false;
+        SsidPicker.SelectedItem = null;
+        SsidPicker.ItemsSource = null;
         PassEntry.IsVisible = false;
         NextButton.IsVisible = false;
         NextButton.IsEnabled = false;
-
 #if ANDROID
         var context = Android.App.Application.Context;
         _wifiManager = (WifiManager?)context.GetSystemService(Context.WifiService);
@@ -111,6 +111,7 @@ public partial class WifiPage : ContentPage
     {
         if (_wifiReceiver != null)
             _wifiReceiver.WifiStateChanged -= OnWifiStateChanged;
+
 
         MainLabel.Text = "Select the WiFi network you want your LinkedLamp to connect to";
         OpenWifi.IsVisible = false;
