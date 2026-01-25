@@ -16,6 +16,7 @@
                Placeholder="Wifi password"
                IsPassword="True"
                TextChanged="OnPassEntryChanged"
+               Completed="OnPassEntryCompleted"
                MaxLength="63"/>
 
         <Button x:Name="NextButton"

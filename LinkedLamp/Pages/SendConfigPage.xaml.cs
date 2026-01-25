@@ -1,4 +1,5 @@
 #if ANDROID
+using Android.Content.Res;
 using LinkedLamp.Models;
 using Plugin.BLE.Abstractions.Contracts;
 #endif
@@ -13,11 +14,12 @@ public partial class SendConfigPage : ContentPage
     private IDevice? _device;
     private bool _started;
     private CancellationTokenSource? _provCts;
-
-    public SendConfigPage(LinkedLamp.Services.EspBleProvisioningService prov)
+    private readonly IServiceProvider _services;
+    public SendConfigPage(LinkedLamp.Services.EspBleProvisioningService prov, IServiceProvider services)
     {
         InitializeComponent();
         _prov = prov;
+        _services = services;
     }
 
     public void SetContext(ProvisioningContext ctx, IDevice device)
@@ -31,7 +33,8 @@ public partial class SendConfigPage : ContentPage
     protected override async void OnAppearing()
     {
         base.OnAppearing();
-
+        BackWifiButton.IsVisible = false;
+        BackHomeButton.IsVisible = false;
         if (_started)
             return;
 
@@ -47,12 +50,37 @@ public partial class SendConfigPage : ContentPage
         base.OnDisappearing();
     }
 
-    private async void OnBackClicked(object sender, EventArgs e)
+    private async void OnBackWifiClicked(object sender, EventArgs e)
     {
         try { _provCts?.Cancel(); } catch { }
         _provCts?.Dispose();
         _provCts = null;
-        await Navigation.PopAsync();
+
+        var homePage = _services.GetRequiredService<HomePage>();
+        var wifiPage = _services.GetRequiredService<WifiSsidPage>();
+
+        await MainThread.InvokeOnMainThreadAsync(async () =>
+        {
+            var window = this.Window ?? Application.Current!.Windows[0];
+            window.Page = new NavigationPage(homePage);
+            await window.Page.Navigation.PushAsync(wifiPage, false);
+        });
+    }
+
+    private async void OnBackHomeClicked(object sender, EventArgs e)
+    {
+        try { _provCts?.Cancel(); } catch { }
+        _provCts?.Dispose();
+        _provCts = null;
+
+        var homePage = _services.GetRequiredService<HomePage>();
+        var wifiPage = _services.GetRequiredService<WifiSsidPage>();
+
+        await MainThread.InvokeOnMainThreadAsync(async () =>
+        {
+            var window = this.Window ?? Application.Current!.Windows[0];
+            window.Page = new NavigationPage(homePage);
+        });
     }
 
     private async Task RunProvisioningAsync()
@@ -88,7 +116,8 @@ public partial class SendConfigPage : ContentPage
         {
             success = false;
         }
-        //BackButton.IsVisible = !success;
+        BackWifiButton.IsVisible = !success;
+        BackHomeButton.IsVisible = success;
         MainLabel.Text = success
             ? "Configuration sent successfully."
             : "Configuration failed. Please check WiFi credentials and try again.";

@@ -13,6 +13,7 @@
         <Entry x:Name="GroupNameEntry"
                Placeholder="Group name"
                TextChanged="OnGroupNameChanged"
+               Completed="OnGroupNameCompleted"
                MaxLength="32"/>
 
         <Button x:Name="NextButton"

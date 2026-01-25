@@ -23,9 +23,9 @@ public class EspBleProvisioningService
     private string _ssid = "";
     private string _pass = "";
     private EventHandler<CharacteristicUpdatedEventArgs>? _handler;
-    private Action<IDevice>? _onDeviceFound = null;
+    //private Action<IDevice>? _onDeviceFound = null;
 
-    public Action<IDevice>? OnDeviceFound { get => _onDeviceFound; set => _onDeviceFound = value; }
+    //public Action<IDevice>? OnDeviceFound { get => _onDeviceFound; set => _onDeviceFound = value; }
 
     public EspBleProvisioningService()
     {
@@ -64,10 +64,10 @@ public class EspBleProvisioningService
                     found[device.Id] = device;
                 }
             }
-            if (device != null)
-            {
-                _onDeviceFound?.Invoke(device);
-            }
+            //if (device != null)
+            //{
+            //    _onDeviceFound?.Invoke(device);
+            //}
         }
 
         _adapter.DeviceDiscovered += Handler;
