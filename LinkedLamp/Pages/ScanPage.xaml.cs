@@ -1,29 +1,33 @@
 #if ANDROID
 using LinkedLamp.Permissions;
+using LinkedLamp.Services;
 using Plugin.BLE;
 using Plugin.BLE.Abstractions.Contracts;
-using System.Collections.ObjectModel;
+using System.Diagnostics;
+using System.Threading;
 using MauiPermissions = Microsoft.Maui.ApplicationModel.Permissions;
 #endif
+
 using LinkedLamp.Models;
-using System.Diagnostics;
 
 namespace LinkedLamp.Pages;
 
 public partial class ScanPage : ContentPage
 {
     private ProvisioningContext? _ctx;
+
 #if ANDROID
     private const string DeviceNameFilter = "LinkedLamp_Caskev_";
-    private readonly LinkedLamp.Services.EspBleProvisioningService _prov;
+    private readonly EspBleProvisioningService _prov;
     private readonly SendConfigPage _sendConfigPage;
 
     private CancellationTokenSource? _pageCts;
-    private CancellationTokenSource? _scanCts;
-    private Task? _scanTask;
-    private readonly SemaphoreSlim _scanGate = new(1, 1);
+    private Task? _runTask;
 
-    public ScanPage(LinkedLamp.Services.EspBleProvisioningService prov, SendConfigPage sendConfigPage)
+    private int _lifecycleStamp;
+    private bool _isActive;
+
+    public ScanPage(EspBleProvisioningService prov, SendConfigPage sendConfigPage)
     {
         InitializeComponent();
         _prov = prov;
@@ -34,100 +38,120 @@ public partial class ScanPage : ContentPage
     {
         base.OnAppearing();
 
+        _isActive = true;
+        Interlocked.Increment(ref _lifecycleStamp);
+
         _pageCts?.Cancel();
         _pageCts?.Dispose();
         _pageCts = new CancellationTokenSource();
 
-        _scanTask = ScanLoopAsync(_pageCts.Token);
+        SecondaryLabel.Text = "Detecting...";
+        var stamp = _lifecycleStamp;
+        _runTask = RunAsync(stamp, _pageCts.Token);
     }
 
     protected override void OnDisappearing()
     {
-        _pageCts?.Cancel();
-        CancelScan();
+        _isActive = false;
+        Interlocked.Increment(ref _lifecycleStamp);
+
+        try { _pageCts?.Cancel(); } catch { }
+        _pageCts?.Dispose();
+        _pageCts = null;
+
+        _ = Task.Run(() => _prov.CancelAndDisconnectAsync());
+
         base.OnDisappearing();
     }
 
-    private async Task ScanLoopAsync(CancellationToken pageToken)
+    protected override bool OnBackButtonPressed()
     {
-        try
-        {
-            while (!pageToken.IsCancellationRequested)
-            {
-                var found = await StartScanAsync(pageToken);
-                if (found)
-                    return;
+        _isActive = false;
+        Interlocked.Increment(ref _lifecycleStamp);
 
-                await Task.Delay(1000, pageToken);
-                Debug.WriteLine(">>> Scan retrying.");
-            }
-        }
-        catch (OperationCanceledException)
-        {
-            Debug.WriteLine(">>> Scan cancelled.");
-        }
+        try { _pageCts?.Cancel(); } catch { }
+        _ = Task.Run(() => _prov.CancelAndDisconnectAsync());
+
+        return base.OnBackButtonPressed();
     }
 
-    private async Task<bool> StartScanAsync(CancellationToken pageToken)
+    private bool StillCurrent(int stamp, CancellationToken token)
     {
-        if (_ctx == null)
-            return false;
+        return _isActive && stamp == Volatile.Read(ref _lifecycleStamp) && !token.IsCancellationRequested;
+    }
 
-        await _scanGate.WaitAsync(pageToken);
+    private async Task RunAsync(int stamp, CancellationToken token)
+    {
         try
         {
-            CancelScan();
-
-            _scanCts = CancellationTokenSource.CreateLinkedTokenSource(pageToken);
-            var token = _scanCts.Token;
+            if (_ctx == null)
+                return;
 
             var st = await MauiPermissions.RequestAsync<BluetoothScanPermission>();
+            if (!StillCurrent(stamp, token))
+                return;
+
             if (st != PermissionStatus.Granted)
             {
                 SecondaryLabel.Text = "Bluetooth is required to setup your LinkedLamp. Please enable Bluetooth.";
-                return false;
+                return;
             }
 
             var btEnabled = CrossBluetoothLE.Current.State == BluetoothState.On;
             if (!btEnabled)
                 btEnabled = await LinkedLamp.Platforms.Android.BluetoothEnabler.RequestEnableAsync();
 
+            if (!StillCurrent(stamp, token))
+                return;
+
             if (!btEnabled)
             {
                 SecondaryLabel.Text = "Bluetooth is required to setup your LinkedLamp. Please enable Bluetooth.";
-                return false;
+                return;
             }
 
-            SecondaryLabel.Text = "Detecting...";
-            var devices = await _prov.Scan(DeviceNameFilter, token);
+            while (StillCurrent(stamp, token))
+            {
+                SecondaryLabel.Text = "Detecting...";
+                var devices = await _prov.ScanAsync(DeviceNameFilter, token);
 
-            if (devices.Count == 0)
-                return false;
+                if (!StillCurrent(stamp, token))
+                    return;
 
-            CancelScan();
-            _sendConfigPage.SetContext(_ctx, devices.ElementAt(0));
-            await Navigation.PushAsync(_sendConfigPage);
-            Navigation.RemovePage(this);
-            return true;
-        }
-        finally
-        {
-            _scanGate.Release();
-        }
-    }
+                if (devices.Count > 0)
+                {
+                    var device = devices.First();
 
-    private void CancelScan()
-    {
-        Debug.WriteLine(">>> Cancel scan.");
-        try
-        {
-            _scanCts?.Cancel();
+                    if (!StillCurrent(stamp, token))
+                        return;
+
+                    await MainThread.InvokeOnMainThreadAsync(async () =>
+                    {
+                        if (!StillCurrent(stamp, token))
+                            return;
+
+                        Debug.WriteLine($">>> Device found: {device.Name}");
+
+                        _sendConfigPage.SetContext(_ctx, device);
+                        await Navigation.PushAsync(_sendConfigPage);
+                        Navigation.RemovePage(this);
+                    });
+
+                    return;
+                }
+
+                SecondaryLabel.Text = "No device found. Retrying...";
+                await Task.Delay(1000, token);
+            }
         }
-        catch { }
-        finally
+        catch (OperationCanceledException)
         {
-            _scanCts?.Dispose();
-            _scanCts = null;
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine(ex.ToString());
+            if (_isActive)
+                SecondaryLabel.Text = "Scan failed. Please retry.";
         }
     }
 #endif

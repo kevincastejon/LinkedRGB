@@ -1,7 +1,7 @@
 #if ANDROID
-using Android.Content.Res;
 using LinkedLamp.Models;
 using Plugin.BLE.Abstractions.Contracts;
+using System.Diagnostics;
 #endif
 
 namespace LinkedLamp.Pages;
@@ -10,11 +10,15 @@ public partial class SendConfigPage : ContentPage
 {
 #if ANDROID
     private readonly LinkedLamp.Services.EspBleProvisioningService _prov;
+    private readonly IServiceProvider _services;
+
     private ProvisioningContext? _ctx;
     private IDevice? _device;
+
+    private CancellationTokenSource? _cts;
+    private Task? _task;
     private bool _started;
-    private CancellationTokenSource? _provCts;
-    private readonly IServiceProvider _services;
+
     public SendConfigPage(LinkedLamp.Services.EspBleProvisioningService prov, IServiceProvider services)
     {
         InitializeComponent();
@@ -27,34 +31,100 @@ public partial class SendConfigPage : ContentPage
         _ctx = ctx;
         _device = device;
         _started = false;
-        MainLabel.Text = "Sending configuration...";
-    }
 
-    protected override async void OnAppearing()
-    {
-        base.OnAppearing();
+        MainLabel.Text = "Sending configuration...";
         BackWifiButton.IsVisible = false;
         BackHomeButton.IsVisible = false;
+    }
+
+    protected override void OnAppearing()
+    {
+        base.OnAppearing();
+
+        BackWifiButton.IsVisible = false;
+        BackHomeButton.IsVisible = false;
+
         if (_started)
             return;
 
         _started = true;
-        _ = RunProvisioningAsync();
+
+        _cts?.Cancel();
+        _cts?.Dispose();
+        _cts = new CancellationTokenSource();
+
+        _task = RunAsync(_cts.Token);
     }
 
     protected override void OnDisappearing()
     {
-        try { _provCts?.Cancel(); } catch { }
-        _provCts?.Dispose();
-        _provCts = null;
+        Debug.WriteLine(">>> SendConfigPage OnDisappearing.");
+        try { _cts?.Cancel(); } catch { }
+        _cts?.Dispose();
+        _cts = null;
+
+        _ = _prov.CancelAndDisconnectAsync();
         base.OnDisappearing();
+    }
+
+    protected override bool OnBackButtonPressed()
+    {
+        try { _cts?.Cancel(); } catch { }
+        _ = _prov.CancelAndDisconnectAsync();
+        return base.OnBackButtonPressed();
+    }
+
+    private async Task RunAsync(CancellationToken token)
+    {
+        if (_ctx == null || _device == null)
+        {
+            MainLabel.Text = "Missing provisioning data.";
+            BackWifiButton.IsVisible = true;
+            return;
+        }
+
+        try
+        {
+            MainLabel.Text = "Sending configuration...";
+
+            await _prov.ProvisionAsync(
+                _device,
+                _ctx.GroupName,
+                _ctx.Ssid,
+                _ctx.Password,
+                token
+            );
+
+            await MainThread.InvokeOnMainThreadAsync(() =>
+            {
+                MainLabel.Text = "Configuration sent successfully.";
+                BackWifiButton.IsVisible = false;
+                BackHomeButton.IsVisible = true;
+            });
+        }
+        catch (OperationCanceledException)
+        {
+            Debug.WriteLine(">>> Provisioning cancelled.");
+        }
+        catch
+        {
+            await MainThread.InvokeOnMainThreadAsync(() =>
+            {
+                MainLabel.Text = "Configuration failed. Please check WiFi credentials and try again.";
+                BackWifiButton.IsVisible = true;
+                BackHomeButton.IsVisible = false;
+            });
+        }
+        finally
+        {
+            _ = _prov.CancelAndDisconnectAsync();
+        }
     }
 
     private async void OnBackWifiClicked(object sender, EventArgs e)
     {
-        try { _provCts?.Cancel(); } catch { }
-        _provCts?.Dispose();
-        _provCts = null;
+        try { _cts?.Cancel(); } catch { }
+        _ = _prov.CancelAndDisconnectAsync();
 
         var homePage = _services.GetRequiredService<HomePage>();
         var wifiPage = _services.GetRequiredService<WifiSsidPage>();
@@ -69,58 +139,16 @@ public partial class SendConfigPage : ContentPage
 
     private async void OnBackHomeClicked(object sender, EventArgs e)
     {
-        try { _provCts?.Cancel(); } catch { }
-        _provCts?.Dispose();
-        _provCts = null;
+        try { _cts?.Cancel(); } catch { }
+        _ = _prov.CancelAndDisconnectAsync();
 
         var homePage = _services.GetRequiredService<HomePage>();
-        var wifiPage = _services.GetRequiredService<WifiSsidPage>();
 
-        await MainThread.InvokeOnMainThreadAsync(async () =>
+        await MainThread.InvokeOnMainThreadAsync(() =>
         {
             var window = this.Window ?? Application.Current!.Windows[0];
             window.Page = new NavigationPage(homePage);
         });
-    }
-
-    private async Task RunProvisioningAsync()
-    {
-        if (_ctx == null || _device == null)
-        {
-            MainLabel.Text = "Missing provisioning data.";
-            return;
-        }
-        MainLabel.Text = "Sending configuration...";
-
-        _provCts?.Cancel();
-        _provCts?.Dispose();
-        _provCts = new CancellationTokenSource();
-
-        bool success;
-        try
-        {
-            await _prov.ConnectAndSetup(
-                _device,
-                _ctx.GroupName,
-                _ctx.Ssid,
-                _ctx.Password,
-                _provCts.Token);
-
-            success = true;
-        }
-        catch (OperationCanceledException)
-        {
-            return;
-        }
-        catch
-        {
-            success = false;
-        }
-        BackWifiButton.IsVisible = !success;
-        BackHomeButton.IsVisible = success;
-        MainLabel.Text = success
-            ? "Configuration sent successfully."
-            : "Configuration failed. Please check WiFi credentials and try again.";
     }
 #endif
 }
