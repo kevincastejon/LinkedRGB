@@ -5,13 +5,13 @@ namespace LinkedLamp.Pages;
 
 public partial class GroupPage : ContentPage
 {
-    private readonly ScanPage _scanPage;
+    //private readonly ScanPage _scanPage;
     private ProvisioningContext? _ctx;
 
-    public GroupPage(ScanPage scanPage)
+    public GroupPage(/*ScanPage scanPage*/)
     {
         InitializeComponent();
-        _scanPage = scanPage;
+        //_scanPage = scanPage;
     }
 
     public void SetContext(ProvisioningContext ctx)
@@ -28,8 +28,8 @@ public partial class GroupPage : ContentPage
             return;
         if (string.IsNullOrEmpty(_ctx.GroupName) || _ctx.GroupName.Length < 1)
             return;
-        _scanPage.SetContext(_ctx);
-        await Navigation.PushAsync(_scanPage);
+        //_scanPage.SetContext(_ctx);
+        //await Navigation.PushAsync(_scanPage);
     }
 
     private void OnGroupNameChanged(object sender, TextChangedEventArgs e)
@@ -49,7 +49,7 @@ public partial class GroupPage : ContentPage
     {
         if (_ctx == null)
             return;
-        _scanPage.SetContext(_ctx);
-        await Navigation.PushAsync(_scanPage);
+        //_scanPage.SetContext(_ctx);
+        //await Navigation.PushAsync(_scanPage);
     }
 }

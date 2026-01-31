@@ -1,4 +1,5 @@
 ﻿using Plugin.BLE;
+using Plugin.BLE.Abstractions;
 using Plugin.BLE.Abstractions.Contracts;
 using Plugin.BLE.Abstractions.EventArgs;
 using System.Diagnostics;
@@ -16,176 +17,134 @@ public sealed class EspBleProvisioningService
     private readonly SemaphoreSlim _gate = new(1, 1);
 
     private CancellationTokenSource? _activeOpCts;
-
+    private List<IDevice> _foundDevices = new();
     private IDevice? _connectedDevice;
     private ICharacteristic? _wifiProvChar;
     private ICharacteristic? _wifiConfChar;
-
-    private EventHandler<CharacteristicUpdatedEventArgs>? _confHandler;
-    private EventHandler<DeviceEventArgs>? _discoHandler;
 
     public EspBleProvisioningService()
     {
         _adapter = CrossBluetoothLE.Current.Adapter;
     }
 
-    public async Task<HashSet<IDevice>> ScanAsync(string? deviceNameStartsWithFilter, CancellationToken cancellationToken)
+    public async Task<IDevice?> ScanAndFindFirstDeviceAsync(string? deviceNameStartsWithFilter = null, CancellationToken cancellationToken = default)
     {
-        await _gate.WaitAsync(cancellationToken);
+        if (_adapter.IsScanning)
+        {
+            throw new InvalidOperationException("Adapter is already scanning.");
+        }
+        _foundDevices.Clear();
+        _adapter.DeviceDiscovered += OnDeviceDiscovered;
         try
         {
-            await CancelAndDisconnectInternalAsync().ConfigureAwait(false);
-
-            _activeOpCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            var token = _activeOpCts.Token;
-
-            var found = new Dictionary<Guid, IDevice>();
-
-            void Handler(object? sender, DeviceEventArgs e)
-            {
-                if (token.IsCancellationRequested)
-                    return;
-
-                var device = e.Device;
-                var name = device?.Name;
-                if (string.IsNullOrWhiteSpace(name))
-                    return;
-
-                if (!string.IsNullOrWhiteSpace(deviceNameStartsWithFilter) &&
-                    !name.StartsWith(deviceNameStartsWithFilter, StringComparison.Ordinal))
-                    return;
-
-                lock (found)
-                {
-                    if (device != null)
-                        found[device.Id] = device;
-                }
-            }
-
-            _adapter.DeviceDiscovered += Handler;
-
-            try
-            {
-                if (_adapter.IsScanning)
-                    await _adapter.StopScanningForDevicesAsync().ConfigureAwait(false);
-
-                await _adapter.StartScanningForDevicesAsync(
-                    new Plugin.BLE.Abstractions.ScanFilterOptions { ServiceUuids = [SERVICE_UUID] },
-                    deviceFilter: null,
-                    allowDuplicatesKey: false,
-                    cancellationToken: token
-                ).ConfigureAwait(false);
-            }
-            finally
-            {
-                _adapter.DeviceDiscovered -= Handler;
-
-                if (_adapter.IsScanning)
-                {
-                    try { await _adapter.StopScanningForDevicesAsync().ConfigureAwait(false); }
-                    catch { }
-                }
-
-                ClearActiveOpCts();
-            }
-
-            lock (found)
-            {
-                return found.Values.ToHashSet();
-            }
+            await _adapter.StartScanningForDevicesAsync(new ScanFilterOptions { ServiceUuids = [SERVICE_UUID] }, (IDevice device) => string.IsNullOrEmpty(deviceNameStartsWithFilter) || device.Name.StartsWith(deviceNameStartsWithFilter), false, cancellationToken);
         }
         finally
         {
-            _gate.Release();
+            _adapter.DeviceDiscovered -= OnDeviceDiscovered;
         }
+        if (_foundDevices.Count == 0)
+        {
+            return null;
+        }
+        return _foundDevices.OrderByDescending(d => d.Rssi).FirstOrDefault();
+    }
+
+    private void OnDeviceDiscovered(object? sender, DeviceEventArgs e)
+    {
+        _foundDevices.Add(e.Device);
     }
 
     public async Task ProvisionAsync(IDevice device, string groupName, string ssid, string pass, CancellationToken cancellationToken)
     {
-        await _gate.WaitAsync(cancellationToken);
-        try
-        {
-            await CancelAndDisconnectInternalAsync().ConfigureAwait(false);
+        return;
+        //await _gate.WaitAsync(cancellationToken);
+        //try
+        //{
+        //    await CancelAndDisconnectInternalAsync().ConfigureAwait(false);
 
-            _activeOpCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            var token = _activeOpCts.Token;
+        //    _activeOpCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        //    var token = _activeOpCts.Token;
 
-            var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        //    var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
 
-            _discoHandler = (s, e) =>
-            {
-                if (_connectedDevice != null && e.Device.Id == _connectedDevice.Id)
-                    tcs.TrySetException(new InvalidOperationException("BLE device disconnected."));
-            };
+        //    _discoHandler = (s, e) =>
+        //    {
+        //        if (_connectedDevice != null && e.Device.Id == _connectedDevice.Id)
+        //            tcs.TrySetException(new InvalidOperationException("BLE device disconnected."));
+        //    };
 
-            _adapter.DeviceDisconnected += _discoHandler;
+        //    _adapter.DeviceDisconnected += _discoHandler;
 
-            try
-            {
-                await _adapter.ConnectToDeviceAsync(device, default, token).ConfigureAwait(false);
+        //    try
+        //    {
+        //        await _adapter.ConnectToDeviceAsync(device, default, token).ConfigureAwait(false);
 
-                _connectedDevice = device;
+        //        _connectedDevice = device;
 
-                var services = await device.GetServicesAsync(token).ConfigureAwait(false);
-                var provService = services.FirstOrDefault(s => s.Id == SERVICE_UUID)
-                    ?? throw new InvalidOperationException("Service not found.");
+        //        var services = await device.GetServicesAsync(token).ConfigureAwait(false);
+        //        var provService = services.FirstOrDefault(s => s.Id == SERVICE_UUID)
+        //            ?? throw new InvalidOperationException("Service not found.");
 
-                _wifiProvChar = await provService.GetCharacteristicAsync(WIFIPROV_UUID, token).ConfigureAwait(false)
-                    ?? throw new InvalidOperationException("Characteristic not found.");
+        //        _wifiProvChar = await provService.GetCharacteristicAsync(WIFIPROV_UUID, token).ConfigureAwait(false)
+        //            ?? throw new InvalidOperationException("Characteristic not found.");
 
-                _wifiConfChar = await provService.GetCharacteristicAsync(WIFICONF_UUID, token).ConfigureAwait(false)
-                    ?? throw new InvalidOperationException("Characteristic not found.");
+        //        _wifiConfChar = await provService.GetCharacteristicAsync(WIFICONF_UUID, token).ConfigureAwait(false)
+        //            ?? throw new InvalidOperationException("Characteristic not found.");
 
-                _confHandler = (sender, e) =>
-                {
-                    try
-                    {
-                        var val = e.Characteristic.Value;
-                        if (val == null || val.Length == 0)
-                        {
-                            tcs.TrySetException(new InvalidOperationException("Empty BLE response"));
-                            return;
-                        }
+        //        _confHandler = (sender, e) =>
+        //        {
+        //            try
+        //            {
+        //                var val = e.Characteristic.Value;
+        //                if (val == null || val.Length == 0)
+        //                {
+        //                    tcs.TrySetException(new InvalidOperationException("Empty BLE response"));
+        //                    return;
+        //                }
 
-                        var ok = val[0] == 1;
-                        tcs.TrySetResult(ok);
-                    }
-                    catch (Exception ex)
-                    {
-                        tcs.TrySetException(ex);
-                    }
-                };
+        //                var ok = val[0] == 1;
+        //                tcs.TrySetResult(ok);
+        //            }
+        //            catch (Exception ex)
+        //            {
+        //                tcs.TrySetException(ex);
+        //            }
+        //        };
 
-                _wifiConfChar.ValueUpdated += _confHandler;
-                await _wifiConfChar.StartUpdatesAsync(token).ConfigureAwait(false);
+        //        _wifiConfChar.ValueUpdated += _confHandler;
+        //        await _wifiConfChar.StartUpdatesAsync(token).ConfigureAwait(false);
 
-                var payload = SerializeCredentials(groupName.Trim(), ssid.Trim(), pass.Trim());
-                await _wifiProvChar.WriteAsync(payload, token).ConfigureAwait(false);
+        //        var payload = SerializeCredentials(groupName.Trim(), ssid.Trim(), pass.Trim());
+        //        await _wifiProvChar.WriteAsync(payload, token).ConfigureAwait(false);
 
-                var okResult = await tcs.Task.WaitAsync(token).ConfigureAwait(false);
-                if (!okResult)
-                    throw new InvalidOperationException("ESP Wifi connection failed");
-            }
-            finally
-            {
-                await StopUpdatesAndUnsubscribeAsync().ConfigureAwait(false);
-                await DisconnectInternalAsync().ConfigureAwait(false);
+        //        var okResult = await tcs.Task.WaitAsync(token).ConfigureAwait(false);
+        //        if (!okResult)
+        //            throw new InvalidOperationException("ESP Wifi connection failed");
+        //    }
+        //    finally
+        //    {
+        //        await StopUpdatesAndUnsubscribeAsync().ConfigureAwait(false);
+        //        await DisconnectInternalAsync().ConfigureAwait(false);
 
-                if (_discoHandler != null)
-                {
-                    try { _adapter.DeviceDisconnected -= _discoHandler; } catch { }
-                    _discoHandler = null;
-                }
+        //        if (_discoHandler != null)
+        //        {
+        //            try { _adapter.DeviceDisconnected -= _discoHandler; } catch { }
+        //            _discoHandler = null;
+        //        }
 
-                ClearActiveOpCts();
-            }
-        }
-        finally
-        {
-            _gate.Release();
-        }
+        //        ClearActiveOpCts();
+        //    }
+        //}
+        //finally
+        //{
+        //    _gate.Release();
+        //}
     }
-
+    public async Task StopScanAsync()
+    {
+        await _adapter.StopScanningForDevicesAsync();
+    }
     public async Task CancelAndDisconnectAsync()
     {
         await _gate.WaitAsync().ConfigureAwait(false);
@@ -201,35 +160,35 @@ public sealed class EspBleProvisioningService
 
     private async Task CancelAndDisconnectInternalAsync()
     {
-        try { _activeOpCts?.Cancel(); } catch { }
-        await StopUpdatesAndUnsubscribeAsync().ConfigureAwait(false);
-        await DisconnectInternalAsync().ConfigureAwait(false);
+        //try { _activeOpCts?.Cancel(); } catch { }
+        //await StopUpdatesAndUnsubscribeAsync().ConfigureAwait(false);
+        //await DisconnectInternalAsync().ConfigureAwait(false);
 
-        if (_adapter.IsScanning)
-        {
-            try { await _adapter.StopScanningForDevicesAsync().ConfigureAwait(false); }
-            catch { }
-        }
+        //if (_adapter.IsScanning)
+        //{
+        //    try { await _adapter.StopScanningForDevicesAsync().ConfigureAwait(false); }
+        //    catch { }
+        //}
 
-        if (_discoHandler != null)
-        {
-            try { _adapter.DeviceDisconnected -= _discoHandler; } catch { }
-            _discoHandler = null;
-        }
+        //if (_discoHandler != null)
+        //{
+        //    try { _adapter.DeviceDisconnected -= _discoHandler; } catch { }
+        //    _discoHandler = null;
+        //}
 
-        ClearActiveOpCts();
+        //ClearActiveOpCts();
     }
 
     private async Task StopUpdatesAndUnsubscribeAsync()
     {
-        if (_wifiConfChar != null && _confHandler != null)
-        {
-            try { _wifiConfChar.ValueUpdated -= _confHandler; } catch { }
-            _confHandler = null;
+        //if (_wifiConfChar != null && _confHandler != null)
+        //{
+        //    try { _wifiConfChar.ValueUpdated -= _confHandler; } catch { }
+        //    _confHandler = null;
 
-            try { await _wifiConfChar.StopUpdatesAsync().ConfigureAwait(false); }
-            catch { }
-        }
+        //    try { await _wifiConfChar.StopUpdatesAsync().ConfigureAwait(false); }
+        //    catch { }
+        //}
     }
 
     private async Task DisconnectInternalAsync()

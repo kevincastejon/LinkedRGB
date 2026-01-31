@@ -14,151 +14,209 @@ namespace LinkedLamp.Pages;
 
 public partial class ScanPage : ContentPage
 {
-    private ProvisioningContext? _ctx;
-
 #if ANDROID
     private const string DeviceNameFilter = "LinkedLamp_Caskev_";
     private readonly EspBleProvisioningService _prov;
-    private readonly SendConfigPage _sendConfigPage;
+    private readonly WifiSsidPage _wifiSsidPage;
 
-    private CancellationTokenSource? _pageCts;
-    private Task? _runTask;
+    private CancellationTokenSource? _scanCts;
 
-    private int _lifecycleStamp;
-    private bool _isActive;
-
-    public ScanPage(EspBleProvisioningService prov, SendConfigPage sendConfigPage)
+    public ScanPage(EspBleProvisioningService prov, WifiSsidPage wifiSsidPage)
     {
         InitializeComponent();
         _prov = prov;
-        _sendConfigPage = sendConfigPage;
+        _wifiSsidPage = wifiSsidPage;
     }
 
-    protected override void OnAppearing()
+    protected async override void OnAppearing()
     {
         base.OnAppearing();
-
-        _isActive = true;
-        Interlocked.Increment(ref _lifecycleStamp);
-
-        _pageCts?.Cancel();
-        _pageCts?.Dispose();
-        _pageCts = new CancellationTokenSource();
-
-        SecondaryLabel.Text = "Detecting...";
-        var stamp = _lifecycleStamp;
-        _runTask = RunAsync(stamp, _pageCts.Token);
-    }
-
-    protected override void OnDisappearing()
-    {
-        _isActive = false;
-        Interlocked.Increment(ref _lifecycleStamp);
-
-        try { _pageCts?.Cancel(); } catch { }
-        _pageCts?.Dispose();
-        _pageCts = null;
-
-        _ = Task.Run(() => _prov.CancelAndDisconnectAsync());
-
-        base.OnDisappearing();
-    }
-
-    protected override bool OnBackButtonPressed()
-    {
-        _isActive = false;
-        Interlocked.Increment(ref _lifecycleStamp);
-
-        try { _pageCts?.Cancel(); } catch { }
-        _ = Task.Run(() => _prov.CancelAndDisconnectAsync());
-
-        return base.OnBackButtonPressed();
-    }
-
-    private bool StillCurrent(int stamp, CancellationToken token)
-    {
-        return _isActive && stamp == Volatile.Read(ref _lifecycleStamp) && !token.IsCancellationRequested;
-    }
-
-    private async Task RunAsync(int stamp, CancellationToken token)
-    {
+        PermissionStatus st = PermissionStatus.Unknown;
         try
         {
-            if (_ctx == null)
-                return;
-
-            var st = await MauiPermissions.RequestAsync<BluetoothScanPermission>();
-            if (!StillCurrent(stamp, token))
-                return;
-
-            if (st != PermissionStatus.Granted)
+            st = await MauiPermissions.CheckStatusAsync<BluetoothScanPermission>();
+        }
+        catch (Exception)
+        {
+            ScanButton.Text = "Start Scan";
+            ScanButton.IsEnabled = true;
+            SecondaryLabel.Text = "Bluetooth permission error.";
+            return;
+        }
+        if (st != PermissionStatus.Granted)
+        {
+            bool canAskPermission;
+            if (!Preferences.Get("PermissionAsked", false))
             {
-                SecondaryLabel.Text = "Bluetooth is required to setup your LinkedLamp. Please enable Bluetooth.";
-                return;
+                canAskPermission = true;
             }
-
-            var btEnabled = CrossBluetoothLE.Current.State == BluetoothState.On;
-            if (!btEnabled)
-                btEnabled = await LinkedLamp.Platforms.Android.BluetoothEnabler.RequestEnableAsync();
-
-            if (!StillCurrent(stamp, token))
-                return;
-
-            if (!btEnabled)
+            else
             {
-                SecondaryLabel.Text = "Bluetooth is required to setup your LinkedLamp. Please enable Bluetooth.";
-                return;
-            }
-
-            while (StillCurrent(stamp, token))
-            {
-                SecondaryLabel.Text = "Detecting...";
-                var devices = await _prov.ScanAsync(DeviceNameFilter, token);
-
-                if (!StillCurrent(stamp, token))
-                    return;
-
-                if (devices.Count > 0)
+                try
                 {
-                    var device = devices.First();
-
-                    if (!StillCurrent(stamp, token))
-                        return;
-
-                    await MainThread.InvokeOnMainThreadAsync(async () =>
-                    {
-                        if (!StillCurrent(stamp, token))
-                            return;
-
-                        Debug.WriteLine($">>> Device found: {device.Name}");
-
-                        _sendConfigPage.SetContext(_ctx, device);
-                        await Navigation.PushAsync(_sendConfigPage);
-                        Navigation.RemovePage(this);
-                    });
-
+                    canAskPermission = MauiPermissions.ShouldShowRationale<BluetoothScanPermission>();
+                }
+                catch (Exception)
+                {
+                    ScanButton.Text = "Start Scan";
+                    ScanButton.IsEnabled = true;
+                    SecondaryLabel.Text = "Bluetooth permission error.";
                     return;
                 }
-
-                SecondaryLabel.Text = "No device found. Retrying...";
-                await Task.Delay(1000, token);
+            }
+            if (canAskPermission)
+            {
+                ScanButton.IsVisible = true;
+                SecondaryLabel.Text = $"";
+            }
+            else
+            {
+                ScanButton.Text = "Start Scan";
+                ScanButton.IsEnabled = true;
+                ScanButton.IsVisible = false;
+                SecondaryLabel.Text = $"Please activate permission in the app settings. {st}";
             }
         }
-        catch (OperationCanceledException)
-        {
-        }
-        catch (Exception ex)
-        {
-            Debug.WriteLine(ex.ToString());
-            if (_isActive)
-                SecondaryLabel.Text = "Scan failed. Please retry.";
-        }
+    }
+
+    protected override async void OnDisappearing()
+    {
+        base.OnDisappearing();
+        await _prov.StopScanAsync();
+    }
+    private async void OnScanButtonClicked(object sender, EventArgs e)
+    {
+        //PermissionStatus st = PermissionStatus.Unknown;
+        //try
+        //{
+        //    st = await MauiPermissions.CheckStatusAsync<BluetoothScanPermission>();
+        //}
+        //catch (Exception)
+        //{
+        //    ScanButton.Text = "Start Scan";
+        //    ScanButton.IsEnabled = true;
+        //    SecondaryLabel.Text = "Bluetooth permission error.";
+        //    return;
+        //}
+        //if (st != PermissionStatus.Granted)
+        //{
+        //    bool canAskPermission;
+        //    if (!Preferences.Get("PermissionAsked", false))
+        //    {
+        //        canAskPermission = true;
+        //    }
+        //    else
+        //    {
+        //        try
+        //        {
+        //            canAskPermission = MauiPermissions.ShouldShowRationale<BluetoothScanPermission>();
+        //        }
+        //        catch (Exception)
+        //        {
+        //            ScanButton.Text = "Start Scan";
+        //            ScanButton.IsEnabled = true;
+        //            SecondaryLabel.Text = "Bluetooth permission error.";
+        //            return;
+        //        }
+        //    }
+        //    Debug.WriteLine(">>> " + canAskPermission);
+        //    if (canAskPermission)
+        //    {
+        //        Preferences.Set("PermissionAsked", true);
+        //        try
+        //        {
+        //            st = await MauiPermissions.RequestAsync<BluetoothScanPermission>();
+        //        }
+        //        catch (Exception)
+        //        {
+        //            ScanButton.Text = "Start Scan";
+        //            ScanButton.IsEnabled = true;
+        //            SecondaryLabel.Text = "Bluetooth permission error.";
+        //            return;
+        //        }
+        //        if (st != PermissionStatus.Granted)
+        //        {
+        //            ScanButton.Text = "Start Scan";
+        //            ScanButton.IsEnabled = true;
+        //            SecondaryLabel.Text = $"Bluetooth permission is mandatory. {st}";
+        //            bool canAskAgain;
+        //            try
+        //            {
+        //                canAskAgain = MauiPermissions.ShouldShowRationale<BluetoothScanPermission>();
+        //            }
+        //            catch (Exception)
+        //            {
+        //                ScanButton.Text = "Start Scan";
+        //                ScanButton.IsEnabled = true;
+        //                SecondaryLabel.Text = "Bluetooth permission error.";
+        //                return;
+        //            }
+        //            if (!canAskAgain)
+        //            {
+        //                ScanButton.Text = "Start Scan";
+        //                ScanButton.IsEnabled = true;
+        //                ScanButton.IsVisible = false;
+        //                AppSettingsButton.IsVisible = true;
+        //                SecondaryLabel.Text = $"Please activate permission in the app settings. {st}";
+        //            }
+        //            return;
+        //        }
+        //    }
+        //    else
+        //    {
+        //        ScanButton.Text = "Start Scan";
+        //        ScanButton.IsEnabled = true;
+        //        ScanButton.IsVisible = false;
+        //        AppSettingsButton.IsVisible = true;
+        //        SecondaryLabel.Text = $"Please activate permission in the app settings. {st}";
+        //        return;
+        //    }
+        //}
+        //try
+        //{
+        //    bool btEnabled = CrossBluetoothLE.Current.State == BluetoothState.On;
+        //    if (!btEnabled)
+        //    {
+        //        btEnabled = await Platforms.Android.BluetoothEnabler.RequestEnableAsync();
+        //    }
+        //    if (!btEnabled)
+        //    {
+        //        ScanButton.Text = "Start Scan";
+        //        ScanButton.IsEnabled = true;
+        //        SecondaryLabel.Text = "Please activate Bluetooth.";
+        //        return;
+        //    }
+        //}
+        //catch (Exception)
+        //{
+        //    ScanButton.Text = "Start Scan";
+        //    ScanButton.IsEnabled = true;
+        //    SecondaryLabel.Text = "Bluetooth activation error.";
+        //    throw;
+        //}
+        //try
+        //{
+        //    ScanButton.Text = "Scanning...";
+        //    ScanButton.IsEnabled = false;
+        //    IDevice? device = await _prov.ScanAndFindFirstDeviceAsync(DeviceNameFilter);
+        //    if (device == null)
+        //    {
+        //        ScanButton.Text = "Start Scan";
+        //        ScanButton.IsEnabled = true;
+        //        SecondaryLabel.Text = "No device found.";
+        //    }
+        //    else
+        //    {
+        //        SecondaryLabel.Text = $"Device found {device.Name} {device.Rssi}db.";
+        //    }
+        //}
+        //catch (Exception)
+        //{
+        //    ScanButton.Text = "Start Scan";
+        //    ScanButton.IsEnabled = true;
+        //    SecondaryLabel.Text = "Error during scan.";
+        //    throw;
+        //}
     }
 #endif
-
-    public void SetContext(ProvisioningContext ctx)
-    {
-        _ctx = ctx;
-        SecondaryLabel.Text = "";
-    }
 }

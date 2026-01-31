@@ -66,6 +66,9 @@
 	  <Compile Update="Pages\HomePage.xaml.cs">
 	    <DependentUpon>HomePage.xaml</DependentUpon>
 	  </Compile>
+	  <Compile Update="Pages\PermissionsPage.xaml.cs">
+	    <DependentUpon>PermissionsPage.xaml</DependentUpon>
+	  </Compile>
 	  <Compile Update="Pages\WifiPassPage.xaml.cs">
 	    <DependentUpon>WifiPassPage.xaml</DependentUpon>
 	  </Compile>
@@ -76,6 +79,9 @@
 
 	<ItemGroup>
 	  <MauiXaml Update="Pages\HomePage.xaml">
+	    <Generator>MSBuild:Compile</Generator>
+	  </MauiXaml>
+	  <MauiXaml Update="Pages\PermissionsPage.xaml">
 	    <Generator>MSBuild:Compile</Generator>
 	  </MauiXaml>
 	  <MauiXaml Update="Pages\WifiPassPage.xaml">
